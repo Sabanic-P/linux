@@ -816,11 +816,11 @@ void sev_gmem_invalidate(struct kvm *kvm, kvm_pfn_t start, kvm_pfn_t end);
 bool sev_snp_is_rinj_active(struct kvm_vcpu *vcpu);
 bool sev_snp_nmi_blocked(struct kvm_vcpu *vcpu);
 bool sev_snp_interrupt_blocked(struct kvm_vcpu *vcpu);
-
+int sev_vc_vmpl(struct vcpu_svm *svm);
 void sev_unmap_doorbell_page(struct vcpu_svm *svm);
-static inline int sev_restricted_injection_enabled(struct kvm *kvm) {
+static inline int sev_restricted_injection_enabled(struct kvm *kvm, unsigned int vmpl_level) {
 	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
-	return !!(sev->sev_features & SVM_SEV_FEAT_RESTRICTED_INJECTION);
+	return !!((sev->sev_features[vmpl_level]) & SVM_SEV_FEAT_RESTRICTED_INJECTION);
 }
 void sev_inject_restricted_nmi(struct vcpu_svm *svm);
 static inline int sev_restricted_injection_nmi_blocked(struct vcpu_svm *svm) {
@@ -836,7 +836,7 @@ struct pending_event {
 	bool nmi : 1;
 	bool machine_check : 1;
 	u8 reserved : 5;
-	bool no_further_singal : 1;
+	bool no_further_signal : 1;
 };
 
 struct doorbell_page {

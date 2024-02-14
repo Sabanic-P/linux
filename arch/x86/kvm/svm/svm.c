@@ -2373,9 +2373,8 @@ reinject:
 
 static int vc_interception(struct kvm_vcpu *vcpu)
 {
-	struct kvm_run *kvm_run = vcpu->run;
-	kvm_run->exit_reason = KVM_EXIT_REFLECT_VC;
-	return 0;
+	struct vcpu_svm* svm = to_svm(vcpu);
+	return sev_vc_vmpl(svm);
 }
 
 void svm_set_gif(struct vcpu_svm *svm, bool value)
@@ -3193,7 +3192,7 @@ int svm_emulate_halt(struct kvm_vcpu *vcpu)
 	int ret;
 	bool skip_halt = false;
 
-	if (sev_es_guest(vcpu->kvm) && sev_restricted_injection_enabled(vcpu->kvm)) {
+	if (sev_es_guest(vcpu->kvm) && sev_restricted_injection_enabled(vcpu->kvm,svm->sev_es.snp_current_vmpl)) {
 		ret = sev_should_skip_hlt(svm);
 		if (ret < 0)
 			return ret;
@@ -3477,7 +3476,7 @@ static int svm_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 			vcpu->arch.cr3 = svm->vmcb->save.cr3;
 	}
 
-	if (sev_es_guest(vcpu->kvm) && sev_restricted_injection_enabled(vcpu->kvm)) {
+	if (sev_es_guest(vcpu->kvm) && sev_restricted_injection_enabled(vcpu->kvm, svm->sev_es.snp_current_vmpl)) {
 		ret = sev_restricted_injection_check_isr(svm);
 		if (ret < 0)
 			return ret;
@@ -3540,7 +3539,7 @@ static void svm_inject_nmi(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 
-	if (sev_es_guest(vcpu->kvm) && sev_restricted_injection_enabled(vcpu->kvm)) {
+	if (sev_es_guest(vcpu->kvm) && sev_restricted_injection_enabled(vcpu->kvm, svm->sev_es.snp_current_vmpl)) {
 		sev_inject_restricted_nmi(svm);
 		
 	} else {
@@ -3593,7 +3592,7 @@ static void svm_inject_irq(struct kvm_vcpu *vcpu, bool reinjected)
 	struct vcpu_svm *svm = to_svm(vcpu);
 	u32 type;
 
-	if (sev_es_guest(vcpu->kvm) && sev_restricted_injection_enabled(vcpu->kvm)) {
+	if (sev_es_guest(vcpu->kvm) && sev_restricted_injection_enabled(vcpu->kvm, svm->sev_es.snp_current_vmpl)) {
 		sev_inject_restricted_irq(svm, reinjected);
 		trace_kvm_inj_virq(vcpu->arch.interrupt.nr,
 				vcpu->arch.interrupt.soft, reinjected);
@@ -3725,7 +3724,7 @@ bool svm_nmi_blocked(struct kvm_vcpu *vcpu)
 	struct vcpu_svm *svm = to_svm(vcpu);
 	struct vmcb *vmcb = svm->vmcb;
 
-	if (sev_es_guest(vcpu->kvm) && sev_restricted_injection_enabled(vcpu->kvm))
+	if (sev_es_guest(vcpu->kvm) && sev_restricted_injection_enabled(vcpu->kvm, svm->sev_es.snp_current_vmpl))
 		return sev_restricted_injection_nmi_blocked(svm);
 
 	if (!gif_set(svm))
@@ -3763,7 +3762,7 @@ bool svm_interrupt_blocked(struct kvm_vcpu *vcpu)
 	struct vcpu_svm *svm = to_svm(vcpu);
 	struct vmcb *vmcb = svm->vmcb;
 
-	if (sev_es_guest(vcpu->kvm) && sev_restricted_injection_enabled(vcpu->kvm))
+	if (sev_es_guest(vcpu->kvm) && sev_restricted_injection_enabled(vcpu->kvm, svm->sev_es.snp_current_vmpl))
 		return sev_restricted_injection_blocked(svm);
 
 	if (!gif_set(svm))
@@ -4031,7 +4030,7 @@ static void svm_complete_interrupts(struct kvm_vcpu *vcpu)
 	if (soft_int_injected)
 		svm_complete_soft_interrupt(vcpu, vector, type);
 
-	if (sev_es_guest(vcpu->kvm) && sev_restricted_injection_enabled(vcpu->kvm))
+	if (sev_es_guest(vcpu->kvm) && sev_restricted_injection_enabled(vcpu->kvm, svm->sev_es.snp_current_vmpl))
 		return;
 
 	switch (type) {

@@ -35,6 +35,7 @@
 
 #include "lapic.h"
 
+
 #ifndef CONFIG_KVM_AMD_SEV
 /*
  * When this config is not defined, SEV feature is not supported and APIs in
@@ -3910,7 +3911,7 @@ void sev_inject_restricted_nmi(struct vcpu_svm *svm)
 	doorbell_page->pending_event.nmi = true;
 
 	if (!doorbell_page->pending_event.no_further_signal){
-		doorbell_page->spending_event.no_further_signal = true;
+		doorbell_page->pending_event.no_further_signal = true;
 	} else {
 		hv_required = false;
 	}
@@ -3918,7 +3919,7 @@ void sev_inject_restricted_nmi(struct vcpu_svm *svm)
 	if (hv_required) {
 		svm->vmcb->control.event_inj = X86_TRAP_HC 
 										| SVM_EVTINJ_VALID
-										| SVM_EVETINJ_TYPE_EXEPT;
+										| SVM_EVTINJ_TYPE_EXEPT;
 		svm->vmcb->control.event_inj_err = 0;
 	}
 }
@@ -3938,7 +3939,7 @@ void sev_inject_restricted_irq(struct vcpu_svm *svm, bool reinjected)
 	doorbell_page = svm->sev_es.snp_doorbell_page;
 
 	vector = svm->vcpu.arch.interrupt.nr;
-	hv_required |= doorbell_page->pending_event.vector == == 0;
+	hv_required |= doorbell_page->pending_event.vector == 0;
 	doorbell_page->pending_event.vector = vector;
 	svm->sev_es.snp_doorbell_presented_vector = true;
 	svm->sev_es.snp_doorbell_last_presented_vector = vector;
@@ -4024,7 +4025,7 @@ int sev_restricted_injection_blocked(struct vcpu_svm *svm)
 	if (sev_map_doorbell_page(svm))
 		return 1;
 
-	doorbell_page = svm_sev_es.snp_doorbell_page;
+	doorbell_page = svm->sev_es.snp_doorbell_page;
 
 	if (doorbell_page->pending_event.vector == 0) {
 		res = 0;
@@ -4045,10 +4046,10 @@ static int sev_snp_hv_doorbell_page(struct vcpu_svm *svm)
 	int ret;
 
 	//TODO:
-	if (!sev_restricted_injection_enabled(svm->vcpu.kvm))
+	if (!sev_restricted_injection_enabled(svm->vcpu.kvm, svm->sev_es.snp_current_vmpl))
 		return -EINVAL;
 
-	request = contorl->exit_info_1;
+	request = control->exit_info_1;
 	switch (request) {
 	case SVM_VMGEXIT_HV_DOORBELL_GET_PREFFERED:
 		ghcb_set_sw_exit_info_2(ghcb, GHCB_HV_DOORBELL_PAGE_GPA_NONE);
@@ -4060,7 +4061,7 @@ static int sev_snp_hv_doorbell_page(struct vcpu_svm *svm)
 		if (!PAGE_ALIGNED(new_doorbell_gpa))
 			return -EINVAL;
 		
-		ghcb_set_sw_exit_info_2(ghcb, new_doorbell_page);
+		ghcb_set_sw_exit_info_2(ghcb, new_doorbell_gpa);
 		svm->sev_es.snp_doorbell_gpa = new_doorbell_gpa;
 		svm->sev_es.snp_doorbell_active = true;
 
@@ -4224,10 +4225,21 @@ static int __sev_run_vmpl_vmsa(struct vcpu_svm *svm, unsigned int new_vmpl)
 	return 0;
 }
 
-static void sev_reflect_vc(struct vcpu_svm *svm)
+int sev_vc_vmpl(struct vcpu_svm *svm)
 {
-	//TODO:
+	u32 vmpl = svm->sev_es.snp_current_vmpl;
+	int ret;
 
+	if (vmpl == 0 || vmpl == 2)
+		return 1;
+	
+	ret = __sev_run_vmpl_vmsa(svm, vmpl);
+	if (ret) {
+		pr_alert("Failed to change VMPL level");
+		return ret;
+	}
+
+	return 1;
 }
 
 
@@ -4572,9 +4584,6 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 			    control->exit_info_1, control->exit_info_2);
 		ret = -EINVAL;
 		break;
-	case SVM_VMGEXIT_REFLECT_VC:
-
-
 	default:
 		ret = svm_invoke_exit_handler(vcpu, exit_code);
 	}
