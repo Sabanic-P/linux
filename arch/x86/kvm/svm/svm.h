@@ -818,7 +818,7 @@ bool sev_snp_nmi_blocked(struct kvm_vcpu *vcpu);
 bool sev_snp_interrupt_blocked(struct kvm_vcpu *vcpu);
 
 void sev_unmap_doorbell_page(struct vcpu_svm *svm);
-static inline sev_restrictd_injection_enabled(struct kvm *kvm) {
+static inline int sev_restricted_injection_enabled(struct kvm *kvm) {
 	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
 	return !!(sev->sev_features & SVM_SEV_FEAT_RESTRICTED_INJECTION);
 }
@@ -826,12 +826,12 @@ void sev_inject_restricted_nmi(struct vcpu_svm *svm);
 static inline int sev_restricted_injection_nmi_blocked(struct vcpu_svm *svm) {
 	return !svm->sev_es.snp_doorbell_active;
 }
-void sev_inject_restricted_irq(strcut vcpu_svm *svm, bool reinjected);
+void sev_inject_restricted_irq(struct vcpu_svm *svm, bool reinjected);
 int sev_restricted_injection_check_isr(struct vcpu_svm *svm);
 int sev_should_skip_hlt(struct vcpu_svm *svm);
 int sev_restricted_injection_blocked(struct vcpu_svm *svm);
 
-struct pening_event {
+struct pending_event {
 	u8 vector : 8;
 	bool nmi : 1;
 	bool machine_check : 1;
