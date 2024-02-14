@@ -499,6 +499,19 @@ int kvm_set_apic_base(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	return 0;
 }
 
+int kvm_enable_x2apic(struct kvm_vcpu *vcpu)
+{
+	struct msr_data msr_info;
+	msr_info.host_initiated = true;
+
+	msr_info.data = kvm_get_apic_base(vcpu);
+	msr_info.data |= X2APIC_ENABLE;
+	if (kvm_set_apic_base(vcpu, &msr_info))
+		return -ENXIO;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(kvm_enable_x2apic);
 /*
  * Handle a fault on a hardware virtualization (VMX or SVM) instruction.
  *
