@@ -4224,7 +4224,7 @@ static int __sev_run_vmpl_vmsa(struct vcpu_svm *svm, unsigned int new_vmpl)
 
 	return 0;
 }
-
+#define SVMS_VMPL_LEVEL 0
 int sev_vc_vmpl(struct vcpu_svm *svm)
 {
 	u32 vmpl = svm->sev_es.snp_current_vmpl;
@@ -4233,7 +4233,7 @@ int sev_vc_vmpl(struct vcpu_svm *svm)
 	if (vmpl == 0 || vmpl == 2)
 		return 1;
 	
-	ret = __sev_run_vmpl_vmsa(svm, vmpl);
+	ret = __sev_run_vmpl_vmsa(svm, SVMS_VMPL_LEVEL);
 	if (ret) {
 		pr_alert("Failed to change VMPL level");
 		return ret;
