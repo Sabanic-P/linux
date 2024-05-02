@@ -236,6 +236,7 @@ struct kvm_user_vmgexit {
 #define KVM_EXIT_LOONGARCH_IOCSR  38
 #define KVM_EXIT_MEMORY_FAULT     39
 #define KVM_EXIT_VMGEXIT          40
+#define KVM_EXIT_REFLECT_VC       51
 
 /* For KVM_EXIT_INTERNAL_ERROR */
 /* Emulate instruction failed. */

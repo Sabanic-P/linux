@@ -88,6 +88,7 @@ struct dest_map;
 int kvm_create_lapic(struct kvm_vcpu *vcpu, int timer_advance_ns);
 void kvm_free_lapic(struct kvm_vcpu *vcpu);
 
+void kvm_apic_set_isr(struct kvm_vcpu *vcpu, int vec);
 int kvm_apic_has_interrupt(struct kvm_vcpu *vcpu);
 int kvm_apic_accept_pic_intr(struct kvm_vcpu *vcpu);
 int kvm_get_apic_interrupt(struct kvm_vcpu *vcpu);
@@ -96,6 +97,8 @@ void kvm_lapic_reset(struct kvm_vcpu *vcpu, bool init_event);
 u64 kvm_lapic_get_cr8(struct kvm_vcpu *vcpu);
 void kvm_lapic_set_tpr(struct kvm_vcpu *vcpu, unsigned long cr8);
 void kvm_lapic_set_eoi(struct kvm_vcpu *vcpu);
+void kvm_lapic_set_sw_enable(struct kvm_vcpu *vcpu, bool enable);
+int kvm_enable_x2apic(struct kvm_vcpu *vcpu);
 void kvm_lapic_set_base(struct kvm_vcpu *vcpu, u64 value);
 u64 kvm_lapic_get_base(struct kvm_vcpu *vcpu);
 void kvm_recalculate_apic_map(struct kvm *kvm);

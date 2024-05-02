@@ -117,6 +117,12 @@
 #define SVM_VMGEXIT_AP_DESTROY			2
 #define SVM_VMGEXIT_AP_VMPL_MASK		GENMASK(19, 16)
 #define SVM_VMGEXIT_AP_VMPL_SHIFT		16
+#define SVM_VMGEXIT_AP_VMPL_SHIFT			16
+#define SVM_VMGEXIT_HV_DOORBELL_PAGE				0x80000014
+#define SVM_VMGEXIT_HV_DOORBELL_GET_PREFFERED			0
+#define SVM_VMGEXIT_HV_DOORBELL_SET						1
+#define SVM_VMGEXIT_HV_DOORBELL_QUERY 					2
+#define SVM_VMGEXIT_HV_DOORBELL_CLEAR 					3
 #define SVM_VMGEXIT_GET_APIC_IDS		0x80000017
 #define SVM_VMGEXIT_RUN_VMPL			0x80000018
 #define SVM_VMGEXIT_SNP_RUN_VMPL		0x80000018
@@ -178,6 +184,7 @@
 	{ SVM_EXIT_EXCP_BASE + AC_VECTOR,       "AC excp" }, \
 	{ SVM_EXIT_EXCP_BASE + MC_VECTOR,       "MC excp" }, \
 	{ SVM_EXIT_EXCP_BASE + XM_VECTOR,       "XF excp" }, \
+	{ SVM_EXIT_EXCP_BASE + VC_VECTOR,		"VC excp" }, \
 	{ SVM_EXIT_INTR,        "interrupt" }, \
 	{ SVM_EXIT_NMI,         "nmi" }, \
 	{ SVM_EXIT_SMI,         "smi" }, \
@@ -241,6 +248,7 @@
 	{ SVM_VMGEXIT_GUEST_REQUEST,	"vmgexit_guest_request" }, \
 	{ SVM_VMGEXIT_EXT_GUEST_REQUEST, "vmgexit_ext_guest_request" }, \
 	{ SVM_VMGEXIT_AP_CREATION,	"vmgexit_ap_creation" }, \
+	{ SVM_VMGEXIT_HV_DOORBELL_PAGE, "vmgexit_hypervisor_doorbell_page" }, \
 	{ SVM_VMGEXIT_HV_FEATURES,	"vmgexit_hypervisor_feature" }, \
 	{ SVM_EXIT_ERR,         "invalid_guest_state" }
 

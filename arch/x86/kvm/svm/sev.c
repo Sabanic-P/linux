@@ -34,6 +34,8 @@
 #include "cpuid.h"
 #include "trace.h"
 
+#include "lapic.h"
+
 #ifndef CONFIG_KVM_AMD_SEV
 /*
  * When this config is not defined, SEV feature is not supported and APIs in
@@ -712,8 +714,16 @@ static int sev_es_sync_vmsa(struct vcpu_svm *svm)
 	if (sev_snp_guest(svm->vcpu.kvm)) {
 		save->sev_features |= SVM_SEV_FEAT_SNP_ACTIVE;
 
-		if (has_snp_feature(sev, KVM_SEV_SNP_RESTRICTED_INJET))
-			save->sev_features |= SVM_SEV_FEAT_RESTRICTED_INJECTION;
+		if (has_snp_feature(sev, KVM_SEV_SNP_RESTRICTED_INJET)) {
+ 			save->sev_features |= SVM_SEV_FEAT_RESTRICTED_INJECTION;
+			//TODO: 
+			if (lapic_in_kernel(&svm->vcpu)){
+				ret = kvm_enable_x2apic(&svm->vcpu);
+				if (ret < 0)
+					return ret;
+			}
+		}
+		
 	}
 
 	/*
@@ -3156,6 +3166,8 @@ static int sev_es_validate_vmgexit(struct vcpu_svm *svm)
 	case SVM_VMGEXIT_EXT_GUEST_REQUEST:
 	case SVM_VMGEXIT_RUN_VMPL:
 		break;
++	case SVM_VMGEXIT_HV_DOORBELL_PAGE:
+ 		break;
 	default:
 		reason = GHCB_ERR_INVALID_EVENT;
 		goto vmgexit_err;
@@ -3917,6 +3929,24 @@ static int __sev_run_vmpl_vmsa(struct vcpu_svm *svm, unsigned int new_vmpl)
 	return 0;
 }
 
+#define SVMS_VMPL_LEVEL 0
+int sev_vc_vmpl(struct vcpu_svm *svm)
+{
+	u32 vmpl = svm->sev_es.snp_current_vmpl;
+	int ret;
+
+	if (vmpl == 0 || vmpl == 2)
+		return 1;
+	
+	ret = __sev_run_vmpl_vmsa(svm, SVMS_VMPL_LEVEL);
+	if (ret) {
+		pr_alert("Failed to change VMPL level");
+		return ret;
+	}
+
+	return 1;
+}
+
 static void sev_run_vmpl_vmsa(struct vcpu_svm *svm)
 {
 	struct ghcb *ghcb = svm->sev_es.ghcb;
@@ -4094,6 +4124,228 @@ static int sev_handle_vmgexit_msr_protocol(struct vcpu_svm *svm)
 	return ret;
 }
 
+static inline int sev_map_doorbell_page(struct vcpu_svm *svm)
+{
+	u64 gfn = gpa_to_gfn(svm->sev_es.snp_doorbell_gpa);
+	struct kvm_vcpu* vcpu = &svm->vcpu;
+
+	if (kvm_vcpu_map(vcpu, gfn, &svm->sev_es.snp_doorbell_map)) {
+		pr_err("error mapping doorbell page GFN");
+		return -EFAULT;
+	}
+	svm->sev_es.snp_doorbell_page = svm->sev_es.snp_doorbell_map.hva;
+	
+	return 0;
+}
+
+void sev_unmap_doorbell_page(struct vcpu_svm *svm)
+{
+	struct kvm_vcpu *vcpu = &svm->vcpu;
+
+	kvm_vcpu_unmap(vcpu, &svm->sev_es.snp_doorbell_map, true);
+	svm->sev_es.snp_doorbell_page = NULL;
+
+}
+
+void sev_inject_restricted_nmi(struct vcpu_svm *svm) 
+{
+	struct doorbell_page *doorbell_page;
+	bool hv_required = true;
+
+	if (!svm->sev_es.snp_doorbell_active)
+		return;
+	
+	if (sev_map_doorbell_page(svm))
+		return;
+
+	doorbell_page = svm->sev_es.snp_doorbell_page;
+	doorbell_page->pending_event.nmi = true;
+
+	if (!doorbell_page->pending_event.no_further_signal){
+		doorbell_page->pending_event.no_further_signal = true;
+	} else {
+		hv_required = false;
+	}
+
+	if (hv_required) {
+		svm->vmcb->control.event_inj = X86_TRAP_HC 
+										| SVM_EVTINJ_VALID
+										| SVM_EVTINJ_TYPE_EXEPT;
+		svm->vmcb->control.event_inj_err = 0;
+	}
+}
+
+void sev_inject_restricted_irq(struct vcpu_svm *svm, bool reinjected)
+{
+	struct doorbell_page *doorbell_page;
+	bool hv_required = false;
+	u8 vector;
+
+	if (!svm->sev_es.snp_doorbell_active)
+		return;
+
+	if (sev_map_doorbell_page(svm))
+		return;
+
+	doorbell_page = svm->sev_es.snp_doorbell_page;
+
+	vector = svm->vcpu.arch.interrupt.nr;
+	hv_required |= doorbell_page->pending_event.vector == 0;
+	doorbell_page->pending_event.vector = vector;
+	svm->sev_es.snp_doorbell_presented_vector = true;
+	svm->sev_es.snp_doorbell_last_presented_vector = vector;
+
+	if (hv_required) {
+		if (!doorbell_page->pending_event.no_further_signal) {
+			doorbell_page->pending_event.no_further_signal = true;
+		} else {
+			hv_required = false;
+		}
+	}
+
+	if (hv_required) {
+		svm->vmcb->control.event_inj = X86_TRAP_HC	
+										| SVM_EVTINJ_VALID
+										| SVM_EVTINJ_TYPE_EXEPT;
+		svm->vmcb->control.event_inj_err = 0;
+	}
+}
+
+int sev_restricted_injection_check_isr(struct vcpu_svm *svm)
+{
+	struct kvm_vcpu *vcpu = &svm->vcpu;
+	struct doorbell_page *doorbell_page;
+	u8 vector;
+	int ret = 0;
+
+	if (!svm->sev_es.snp_doorbell_active)
+		return 0;
+	
+	if (!svm->sev_es.snp_doorbell_presented_vector)
+		return 0;
+	
+	ret = sev_map_doorbell_page(svm);
+	if (ret < 0)
+		return ret;
+	
+	doorbell_page = svm->sev_es.snp_doorbell_page;
+
+	vector = doorbell_page->pending_event.vector;
+
+	if (vector == 0) {
+		if (lapic_in_kernel(vcpu)){
+			kvm_apic_clear_irr(vcpu, svm->sev_es.snp_doorbell_last_presented_vector);
+			kvm_apic_set_isr(vcpu, svm->sev_es.snp_doorbell_last_presented_vector);
+			kvm_apic_update_ppr(vcpu);
+		}
+		svm->sev_es.snp_doorbell_presented_vector = false;
+	}
+
+	return ret;
+}
+
+int sev_should_skip_hlt(struct vcpu_svm *svm)
+{
+	struct doorbell_page *doorbell_page;
+	int ret = 0;
+
+	if (!svm->sev_es.snp_doorbell_active)
+		return 0;
+	
+	if (!svm->sev_es.snp_doorbell_presented_vector)
+		return 0;
+
+	ret = sev_map_doorbell_page(svm);
+	if (ret < 0)
+		return ret;
+	
+	doorbell_page = svm->sev_es.snp_doorbell_page;
+
+	return doorbell_page->pending_event.vector != 0;
+}
+
+int sev_restricted_injection_blocked(struct vcpu_svm *svm)
+{
+	struct doorbell_page *doorbell_page;
+	int res;
+
+	if (!svm->sev_es.snp_doorbell_active)
+		return 0;
+	if (!svm->sev_es.snp_doorbell_presented_vector)
+		return 0;
+	if (sev_map_doorbell_page(svm))
+		return 1;
+
+	doorbell_page = svm->sev_es.snp_doorbell_page;
+
+	if (doorbell_page->pending_event.vector == 0) {
+		res = 0;
+	} else {
+		res = 1;
+	}
+
+	return res;
+}
+
+static int sev_snp_hv_doorbell_page(struct vcpu_svm *svm)
+{
+	struct vmcb_control_area *control = &svm->vmcb->control;
+	struct kvm_vcpu *vcpu = &svm->vcpu;
+	struct ghcb *ghcb = svm->sev_es.ghcb;
+	u32 request;
+	gpa_t new_doorbell_gpa;
+	int ret;
+
+	//TODO:
+	if (!sev_restricted_injection_enabled(svm->vcpu.kvm, svm->sev_es.snp_current_vmpl))
+		return -EINVAL;
+
+	request = control->exit_info_1;
+	switch (request) {
+	case SVM_VMGEXIT_HV_DOORBELL_GET_PREFFERED:
+		ghcb_set_sw_exit_info_2(ghcb, GHCB_HV_DOORBELL_PAGE_GPA_NONE);
+		ret = 0;
+		break;
+	case SVM_VMGEXIT_HV_DOORBELL_SET:
+		new_doorbell_gpa = control->exit_info_2;
+
+		if (!PAGE_ALIGNED(new_doorbell_gpa))
+			return -EINVAL;
+		
+		ghcb_set_sw_exit_info_2(ghcb, new_doorbell_gpa);
+		svm->sev_es.snp_doorbell_gpa = new_doorbell_gpa;
+		svm->sev_es.snp_doorbell_active = true;
+
+		if (lapic_in_kernel(vcpu)) {
+			kvm_lapic_set_sw_enable(vcpu, true);
+		}
+		
+		kvm_make_request(KVM_REQ_EVENT, vcpu);
+		ret = 0;
+		break;
+	case SVM_VMGEXIT_HV_DOORBELL_QUERY:
+		if (svm->sev_es.snp_doorbell_active) {
+			ghcb_set_sw_exit_info_2(ghcb, svm->sev_es.snp_doorbell_gpa);
+		} else {
+			ghcb_set_sw_exit_info_2(ghcb, 0);
+		}
+		ret = 0;
+		break;
+	case SVM_VMGEXIT_HV_DOORBELL_CLEAR:
+		svm->sev_es.snp_doorbell_active = false;
+		if (lapic_in_kernel(vcpu)) {
+			kvm_lapic_set_sw_enable(vcpu, false);
+		}
+		ret = 0;
+		break;
+	default:
+		return -EINVAL;
+	}
+	return ret;
+}
+
+
+
 int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
@@ -4246,6 +4498,12 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 			    control->exit_info_1, control->exit_info_2);
 		ret = -EINVAL;
 		break;
+	case SVM_VMGEXIT_HV_DOORBELL_PAGE:
+		ret = sev_snp_hv_doorbell_page(svm);
+		if (ret) {
+			ghcb_set_sw_exit_info_1(svm->sev_es.ghcb, 1);
+			ghcb_set_sw_exit_info_2(svm->sev_es.ghcb, X86_TRAP_GP | SVM_EVTINJ_TYPE_EXEPT | SVM_EVTINJ_VALID);
+		}
 	default:
 		ret = svm_invoke_exit_handler(vcpu, exit_code);
 	}

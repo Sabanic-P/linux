@@ -3316,3 +3316,21 @@ void kvm_lapic_exit(void)
 	static_key_deferred_flush(&apic_sw_disabled);
 	WARN_ON(static_branch_unlikely(&apic_sw_disabled.key));
 }
+
+
+void kvm_apic_set_isr(struct kvm_vcpu *vcpu, int vec)
+{
+	apic_set_isr(vec, vcpu->arch.apic);
+}
+EXPORT_SYMBOL_GPL(kvm_apic_set_isr);
+
+void kvm_lapic_set_sw_enable(struct kvm_vcpu *vcpu, bool enable)
+{
+	u32 value = kvm_lapic_get_reg(vcpu->arch.apic, APIC_SPIV);
+	if (enable)
+		value |= APIC_SPIV_APIC_ENABLED;
+	else
+		value &= ~APIC_SPIV_APIC_ENABLED;
+	kvm_lapic_reg_write(vcpu->arch.apic, APIC_SPIV, value);
+}
+EXPORT_SYMBOL_GPL(kvm_lapic_set_sw_enable);
