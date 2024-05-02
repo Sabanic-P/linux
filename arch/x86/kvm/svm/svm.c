@@ -1518,10 +1518,10 @@ static void svm_prepare_switch_to_guest(struct kvm_vcpu *vcpu)
 	struct vcpu_svm *svm = to_svm(vcpu);
 	struct svm_cpu_data *sd = per_cpu_ptr(&svm_data, vcpu->cpu);
 
-	if (sev_es_guest(vcpu->kvm)){}
+	if (sev_es_guest(vcpu->kvm)){
 		sev_es_unmap_ghcb(svm);
-+		sev_unmap_doorbell_page(svm);
-+	}
+		sev_unmap_doorbell_page(svm);
+	}
 
 	if (svm->guest_state_loaded)
 		return;
