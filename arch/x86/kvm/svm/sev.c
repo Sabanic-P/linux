@@ -718,7 +718,7 @@ static int sev_es_sync_vmsa(struct vcpu_svm *svm)
  			save->sev_features |= SVM_SEV_FEAT_RESTRICTED_INJECTION;
 			//TODO: 
 			if (lapic_in_kernel(&svm->vcpu)){
-				ret = kvm_enable_x2apic(&svm->vcpu);
+				int ret = kvm_enable_x2apic(&svm->vcpu);
 				if (ret < 0)
 					return ret;
 			}
@@ -3166,7 +3166,7 @@ static int sev_es_validate_vmgexit(struct vcpu_svm *svm)
 	case SVM_VMGEXIT_EXT_GUEST_REQUEST:
 	case SVM_VMGEXIT_RUN_VMPL:
 		break;
-+	case SVM_VMGEXIT_HV_DOORBELL_PAGE:
+	case SVM_VMGEXIT_HV_DOORBELL_PAGE:
  		break;
 	default:
 		reason = GHCB_ERR_INVALID_EVENT;
@@ -4504,6 +4504,8 @@ int sev_handle_vmgexit(struct kvm_vcpu *vcpu)
 			ghcb_set_sw_exit_info_1(svm->sev_es.ghcb, 1);
 			ghcb_set_sw_exit_info_2(svm->sev_es.ghcb, X86_TRAP_GP | SVM_EVTINJ_TYPE_EXEPT | SVM_EVTINJ_VALID);
 		}
+ 		ret = 1;
+ 		break;
 	default:
 		ret = svm_invoke_exit_handler(vcpu, exit_code);
 	}

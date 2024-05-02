@@ -3266,7 +3266,7 @@ static int invpcid_interception(struct kvm_vcpu *vcpu)
 	return kvm_handle_invpcid(vcpu, type, gva);
 }
 
-int svm_emulate_halt(struct kvm_vcpu *vcpu)
+static int svm_emulate_halt(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 	int ret;
